@@ -1,42 +1,50 @@
 ## Patch Verifier
 
-Patch Verifier is the official codebase for the paper “Patch Verifier”. We use reinforcement learning to fine-tune Qwen models to judge software patch correctness from code context and diffs. The training and evaluation pipeline is built on the VERL framework.
+Codebase for the paper “Patch Verifier”. We use reinforcement learning to fine-tune Qwen to judge software patch correctness. Most runnable scripts live under `verl_utils/`.
 
-### Highlights
-- **RL for judging patches**: Train Qwen to assess whether a patch fixes an issue without regressions.
-- **End-to-end pipeline**: Data preparation, training, and evaluation scripts/configs.
-- **Scalable**: Supports single- and multi-GPU setups.
+### Key Directories (under `verl_utils/`)
+- `data/`: Rollout and verification data pipelines (Parquet I/O, prompts, utils).
+- `tool/`: Tool schemas and lightweight code-search/edit tools (`lite_tool.py`, configs in `tool/config/`).
+- `reward/`: Reward server/client to score patch candidates (`model_server.py`, `model_client.py`).
+- `eval/`: Result evaluation utilities (e.g., majority voting, selectors).
+- `scripts/`: Convenience launch scripts for different model sizes.
 
-### Installation
+### Install
 ```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### Data
-- Prepare your dataset of code contexts, patches (diffs), and correctness labels/scores.
-- See `examples/data_preprocess/` for reference preprocessing scripts.
-
 ### Quickstart
-- Configure training via VERL configs under `verl/trainer/config/` (modify as needed for Patch Verifier).
-- Example (single GPU PPO trainer):
+1) Start reward server (optional, for remote scoring or RL):
+- Edit `MODEL_PATH` in `verl_utils/reward/model_server.py` to your Qwen checkpoint.
+- Then run:
 ```bash
-torchrun --nproc_per_node=1 -m verl.trainer.main_ppo \
-  --config verl/trainer/config/ppo_trainer.yaml
-```
-- For evaluation:
-```bash
-python -m verl.trainer.main_eval \
-  --config verl/trainer/config/evaluation.yaml
+ray stop --force
+ray start --head --disable-usage-stats
+python verl_utils/reward/model_server.py
 ```
 
-### Project Structure (partial)
-- `verl/` — core training, models, workers, and utilities (VERL).
-- `examples/` — data preprocessing and task examples.
-- `recipe/` — runnable recipes and scripts for different training variants.
+2) Generate rollouts (no tool, naive):
+```bash
+python -m verl_utils.data.rollout \
+  --model claude37 \
+  --data_path data/data_test_batch_without_tool.parquet \
+  --naive True
+```
 
+3) Judge/verify (produce labels) with lightweight tool config:
+```bash
+python -m verl_utils.data.ver \
+  --model claude37 \
+  --root data/datasets \
+  --split test \
+  --tool_config_path verl_utils/tool/config/lite_tool_config.yaml
+```
+
+Notes
+- If you evaluate via an external harness, set `HARNESS_URL` and `SERVER_URL` in `verl_utils/reward/model_client.py`.
+- Data expectations: `ver.py` looks for `{root}/data_[train|test]_ver.parquet`; `rollout.py` reads Parquet inputs you provide.
 
 ### Acknowledgements
-Built on the VERL training framework and Qwen model family.
-
-
+Built on the VERL framework and Qwen models.
